@@ -120,7 +120,11 @@ class ServerRegistry:
         """
         if config is None:
             self.registry = self.load_registry_from_file(config_path)
-        elif config.mcp is not None and hasattr(config.mcp, 'servers') and config.mcp.servers is not None:
+        elif (
+            config.mcp is not None
+            and hasattr(config.mcp, "servers")
+            and config.mcp.servers is not None
+        ):
             # Ensure config.mcp exists, has a 'servers' attribute, and it's not None
             self.registry = config.mcp.servers
         else:
@@ -206,7 +210,7 @@ class ServerRegistry:
                     read_stream,
                     write_stream,
                     read_timeout_seconds,
-                    None,  # No callback for stdio
+                    server_config=config,
                 )
                 async with session:
                     logger.info(f"{server_name}: Connected to server using stdio transport.")
@@ -231,7 +235,7 @@ class ServerRegistry:
                     read_stream,
                     write_stream,
                     read_timeout_seconds,
-                    None,  # No callback for stdio
+                    server_config=config,
                 )
                 async with session:
                     logger.info(f"{server_name}: Connected to server using SSE transport.")
@@ -258,7 +262,7 @@ class ServerRegistry:
                     read_stream,
                     write_stream,
                     read_timeout_seconds,
-                    None,  # No callback for stdio
+                    server_config=config,
                 )
                 async with session:
                     logger.info(f"{server_name}: Connected to server using HTTP transport.")

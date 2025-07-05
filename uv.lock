@@ -32,18 +32,6 @@ wheels = [
 ]
 
 [[package]]
-name = "a2a-types"
-version = "0.1.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "pydantic" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/80/1e/2fa0c5f12fc2e91e73fbe005b3cfbf80d3eb5a36c840cdf7fd7841baae79/a2a_types-0.1.0.tar.gz", hash = "sha256:f94097ed4425d9aacd55c508d77897937e14f56a89c974024abf9f31b280a355", size = 12070, upload-time = "2025-04-13T11:21:27.53Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/68/7f/4764b079816e2d4d0727841945ebc96b251d6a8517e1895b601af46833c7/a2a_types-0.1.0-py3-none-any.whl", hash = "sha256:37291afcf903cbf36e43112b7cf73d17db80fc8d410603b67ff3b7ff75bdde0d", size = 4589, upload-time = "2025-04-13T11:21:26.051Z" },
-]
-
-[[package]]
 name = "aiohappyeyeballs"
 version = "2.6.1"
 source = { registry = "https://pypi.org/simple" }
@@ -593,11 +581,10 @@ wheels = [
 
 [[package]]
 name = "fast-agent-mcp"
-version = "0.2.35"
+version = "0.2.36"
 source = { editable = "." }
 dependencies = [
     { name = "a2a-sdk" },
-    { name = "a2a-types" },
     { name = "aiohttp" },
     { name = "anthropic" },
     { name = "azure-identity" },
@@ -657,7 +644,6 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "a2a-sdk", specifier = ">=0.2.9" },
-    { name = "a2a-types", specifier = ">=0.1.0" },
     { name = "aiohttp", specifier = ">=3.11.13" },
     { name = "anthropic", specifier = ">=0.55.0" },
     { name = "anthropic", marker = "extra == 'dev'", specifier = ">=0.42.0" },

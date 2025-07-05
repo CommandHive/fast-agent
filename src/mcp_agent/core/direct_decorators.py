@@ -19,6 +19,8 @@ from typing import (
     cast,
 )
 
+from mcp.client.session import ElicitationFnT
+
 from mcp_agent.agents.agent import AgentConfig
 from mcp_agent.core.agent_types import AgentType
 from mcp_agent.core.request_params import RequestParams
@@ -289,6 +291,7 @@ def router(
         request_params: Additional request parameters for the LLM
         human_input: Whether to enable human input capabilities
         default: Whether to mark this as the default agent
+        elicitation_handler: Custom elicitation handler function (ElicitationFnT)
 
     Returns:
         A decorator that registers the router with proper type annotations
@@ -312,6 +315,7 @@ def router(
             human_input=human_input,
             default=default,
             router_agents=agents,
+            elicitation_handler=elicitation_handler,
         ),
     )
 

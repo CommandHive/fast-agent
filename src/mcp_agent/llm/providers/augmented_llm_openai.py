@@ -123,7 +123,7 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
         # For non-OpenAI providers (like Ollama), ChatCompletionStreamState might not work correctly
         # Fall back to manual accumulation if needed
         # TODO -- consider this and whether to subclass instead
-        if self.provider in [Provider.GENERIC, Provider.OPENROUTER]:
+        if self.provider in [Provider.GENERIC, Provider.OPENROUTER, Provider.GOOGLE_OAI]:
             return await self._process_stream_manual(stream, model)
 
         # Use ChatCompletionStreamState helper for accumulation (OpenAI only)
@@ -163,15 +163,20 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
 
         return final_completion
 
+    # TODO - as per other comment this needs to go in another class. There are a number of "special" cases dealt with
+    # here to deal with OpenRouter idiosyncrasies between e.g. Anthropic and Gemini models.
     async def _process_stream_manual(self, stream, model: str):
         """Manual stream processing for providers like Ollama that may not work with ChatCompletionStreamState."""
+        from openai.types.chat import ChatCompletionMessageToolCall
+        from openai.types.chat.chat_completion_message_tool_call import Function
+
         # Track estimated output tokens by counting text chunks
         estimated_tokens = 0
 
         # Manual accumulation of response data
         accumulated_content = ""
         role = "assistant"
-        tool_calls = []
+        tool_calls_map = {}  # Use a map to accumulate tool calls by index
         function_call = None
         finish_reason = None
         usage_data = None
@@ -191,7 +196,35 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
                 if choice.delta.role:
                     role = choice.delta.role
                 if choice.delta.tool_calls:
-                    tool_calls.extend(choice.delta.tool_calls)
+                    # Accumulate tool call deltas
+                    for delta_tool_call in choice.delta.tool_calls:
+                        if delta_tool_call.index is not None:
+                            if delta_tool_call.index not in tool_calls_map:
+                                tool_calls_map[delta_tool_call.index] = {
+                                    "id": delta_tool_call.id,
+                                    "type": delta_tool_call.type or "function",
+                                    "function": {
+                                        "name": delta_tool_call.function.name
+                                        if delta_tool_call.function
+                                        else None,
+                                        "arguments": "",
+                                    },
+                                }
+
+                            # Always update if we have new data (needed for OpenRouter Gemini)
+                            if delta_tool_call.id:
+                                tool_calls_map[delta_tool_call.index]["id"] = delta_tool_call.id
+                            if delta_tool_call.function:
+                                if delta_tool_call.function.name:
+                                    tool_calls_map[delta_tool_call.index]["function"]["name"] = (
+                                        delta_tool_call.function.name
+                                    )
+                                # Handle arguments - they might come as None, empty string, or actual content
+                                if delta_tool_call.function.arguments is not None:
+                                    tool_calls_map[delta_tool_call.index]["function"][
+                                        "arguments"
+                                    ] += delta_tool_call.function.arguments
+
                 if choice.delta.function_call:
                     function_call = choice.delta.function_call
                 if choice.finish_reason:
@@ -200,6 +233,25 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
             # Extract usage data if available
             if hasattr(chunk, "usage") and chunk.usage:
                 usage_data = chunk.usage
+
+        # Convert accumulated tool calls to proper format.
+        tool_calls = None
+        if tool_calls_map:
+            tool_calls = []
+            for idx in sorted(tool_calls_map.keys()):
+                tool_call_data = tool_calls_map[idx]
+                # Only add tool calls that have valid data
+                if tool_call_data["id"] and tool_call_data["function"]["name"]:
+                    tool_calls.append(
+                        ChatCompletionMessageToolCall(
+                            id=tool_call_data["id"],
+                            type=tool_call_data["type"],
+                            function=Function(
+                                name=tool_call_data["function"]["name"],
+                                arguments=tool_call_data["function"]["arguments"],
+                            ),
+                        )
+                    )
 
         # Create a ChatCompletionMessage manually
         message = ChatCompletionMessage(
