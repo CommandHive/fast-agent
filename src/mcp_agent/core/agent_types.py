@@ -16,7 +16,6 @@ class AgentType(Enum):
     """Enumeration of supported agent types."""
 
     BASIC = "agent"
-    CUSTOM = "custom"
     ORCHESTRATOR = "orchestrator"
     PARALLEL = "parallel"
     EVALUATOR_OPTIMIZER = "evaluator_optimizer"
@@ -36,8 +35,6 @@ class AgentConfig:
     default_request_params: RequestParams | None = None
     human_input: bool = False
     agent_type: AgentType = AgentType.BASIC
-    default: bool = False
-    elicitation_handler: ElicitationFnT | None = None
 
     def __post_init__(self):
         """Ensure default_request_params exists with proper history setting"""

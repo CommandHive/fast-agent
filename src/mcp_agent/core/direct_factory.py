@@ -371,20 +371,6 @@ async def create_agents_in_dependency_order(
             )
             active_agents.update(basic_agents)
 
-        # Create custom agents first
-        if AgentType.CUSTOM.value in [agents_dict[name]["type"] for name in group]:
-            basic_agents = await create_agents_by_type(
-                app_instance,
-                {
-                    name: agents_dict[name]
-                    for name in group
-                    if agents_dict[name]["type"] == AgentType.CUSTOM.value
-                },
-                AgentType.CUSTOM,
-                active_agents,
-                model_factory_func,
-            )
-            active_agents.update(basic_agents)
 
         # Create parallel agents
         if AgentType.PARALLEL.value in [agents_dict[name]["type"] for name in group]:

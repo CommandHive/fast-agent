@@ -101,6 +101,8 @@ def markup_fast_agent(request):
 
     # Restore original directory
     os.chdir(original_cwd)
+
+
 # Add a fixture for auto_sampling disabled tests
 @pytest.fixture
 def auto_sampling_off_fast_agent(request):

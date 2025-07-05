@@ -11,9 +11,7 @@ from mcp import ServerSession
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.anthropic import AnthropicInstrumentor
-from opentelemetry.instrumentation.google_genai import GoogleGenAiSdkInstrumentor
-
-# from opentelemetry.instrumentation.mcp import McpInstrumentor
+from opentelemetry.instrumentation.mcp import McpInstrumentor
 from opentelemetry.instrumentation.openai import OpenAIInstrumentor
 from opentelemetry.propagate import set_global_textmap
 from opentelemetry.sdk.resources import Resource
@@ -25,7 +23,7 @@ from pydantic import BaseModel, ConfigDict
 from mcp_agent.config import Settings, get_settings
 from mcp_agent.executor.executor import AsyncioExecutor, Executor
 from mcp_agent.executor.task_registry import ActivityRegistry
-from mcp_agent.logging.events import EventFilter, StreamingExclusionFilter
+from mcp_agent.logging.events import EventFilter
 from mcp_agent.logging.logger import LoggingConfig, get_logger
 from mcp_agent.logging.transport import create_transport
 from mcp_agent.mcp_server_registry import ServerRegistry
@@ -114,18 +112,14 @@ async def configure_otel(config: "Settings") -> None:
     trace.set_tracer_provider(tracer_provider)
     AnthropicInstrumentor().instrument()
     OpenAIInstrumentor().instrument()
-    GoogleGenAiSdkInstrumentor().instrument()
-
-
-#    McpInstrumentor().instrument()
+    McpInstrumentor().instrument()
 
 
 async def configure_logger(config: "Settings") -> None:
     """
     Configure logging and tracing based on the application config.
     """
-    # Use StreamingExclusionFilter to prevent streaming events from flooding logs
-    event_filter: EventFilter = StreamingExclusionFilter(min_level=config.logger.level)
+    event_filter: EventFilter = EventFilter(min_level=config.logger.level)
     logger.info(f"Configuring logger with level: {config.logger.level}")
     transport = create_transport(settings=config.logger, event_filter=event_filter)
     await LoggingConfig.configure(
@@ -153,18 +147,30 @@ async def configure_executor(config: "Settings"):
 
 
 async def initialize_context(
-    config: Optional[Union["Settings", str]] = None, store_globally: bool = False
+    config: Optional[Union["Settings", str, dict]] = None, store_globally: bool = False
 ):
     """
     Initialize the global application context.
+    
+    Args:
+        config: Can be one of:
+            - None: Load from default config file
+            - str: Path to config file
+            - dict: JSON configuration dictionary
+            - Settings: Already initialized Settings object
+        store_globally: Whether to store the context globally
     """
     if config is None:
         config = get_settings()
     elif isinstance(config, str):
         config = get_settings(config_path=config)
+    elif isinstance(config, dict):
+        config = get_settings(json_config=config)
 
     context = Context()
     context.config = config
+    
+    # Initialize the server registry with the config
     context.server_registry = ServerRegistry(config=config)
 
     # Configure logging and telemetry
@@ -202,6 +208,7 @@ _global_context: Context | None = None
 def get_current_context() -> Context:
     """
     Synchronous initializer/getter for global application context.
+    For async usage, use aget_current_context instead.
     """
     global _global_context
     if _global_context is None:

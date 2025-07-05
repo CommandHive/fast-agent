@@ -48,10 +48,14 @@ class LoggerTextIO(TextIO):
             complete_lines = lines[:-1]
             self._line_buffer = lines[-1]
 
-        # Log complete lines but at debug level instead of info to prevent console spam
+        # Log complete lines - use error level for critical errors, debug for others
         for line in complete_lines:
             if line.strip():  # Only log non-empty lines
-                logger.debug(f"{self.server_name} (stderr): {line}")
+                # Check for critical errors that should be visible
+                if any(keyword in line.lower() for keyword in ['error:', 'packagenotfounderror', 'failed', 'exception']):
+                    logger.error(f"{self.server_name} (stderr): {line}")
+                else:
+                    logger.debug(f"{self.server_name} (stderr): {line}")
 
         # Always write to the underlying buffer
         return self._buffer.write(s)
@@ -64,7 +68,11 @@ class LoggerTextIO(TextIO):
         """Close the stream."""
         # Log any remaining content in the line buffer
         if self._line_buffer and self._line_buffer.strip():
-            logger.debug(f"{self.server_name} (stderr): {self._line_buffer}")
+            # Check for critical errors that should be visible
+            if any(keyword in self._line_buffer.lower() for keyword in ['error:', 'packagenotfounderror', 'failed', 'exception']):
+                logger.error(f"{self.server_name} (stderr): {self._line_buffer}")
+            else:
+                logger.debug(f"{self.server_name} (stderr): {self._line_buffer}")
         self._buffer.close()
 
     def readable(self) -> bool:

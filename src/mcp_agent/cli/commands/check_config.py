@@ -226,6 +226,8 @@ def get_config_summary(config_path: Optional[Path]) -> dict:
 
                 # Determine transport type
                 if "url" in server_config:
+                    server_info["transport"] = "SSE"
+                    server_info["url"] = server_config.get("url", "")
                     url = server_config.get("url", "")
                     server_info["url"] = url
                     

@@ -27,16 +27,20 @@ async def gen_client(
     If required, callers can specify their own message receive loop and ClientSession class constructor to customize further.
     For persistent connections, use connect() or MCPConnectionManager instead.
     """
+    print(f"🚀 DEBUG: gen_client() - STARTING connection to server '{server_name}'")
     if not server_registry:
         raise ValueError(
             "Server registry not found in the context. Please specify one either on this method, or in the context."
         )
-
+    print(f"Why is the registration not happeneing!!!! server_registry: file gen_client.py {server_registry}")
+    print(f"🔄 DEBUG: gen_client() - About to initialize server '{server_name}' via server registry")
     async with server_registry.initialize_server(
         server_name=server_name,
         client_session_factory=client_session_factory,
     ) as session:
+        print(f"✅ DEBUG: gen_client() - Successfully initialized server '{server_name}', yielding session")
         yield session
+        print(f"🔗 DEBUG: gen_client() - Session cleanup for server '{server_name}' completed")
 
 
 async def connect(
@@ -52,16 +56,19 @@ async def connect(
     Handles server startup, initialization, and message receive loop setup.
     If required, callers can specify their own message receive loop and ClientSession class constructor to customize further.
     """
+    print(f"🚀 DEBUG: connect() - STARTING persistent connection to server '{server_name}'")
     if not server_registry:
         raise ValueError(
             "Server registry not found in the context. Please specify one either on this method, or in the context."
         )
 
+    print(f"🔄 DEBUG: connect() - About to get server connection for '{server_name}' from connection manager")
     server_connection = await server_registry.connection_manager.get_server(
         server_name=server_name,
         client_session_factory=client_session_factory,
     )
 
+    print(f"✅ DEBUG: connect() - Successfully got server connection for '{server_name}', returning session")
     return server_connection.session
 
 

@@ -469,12 +469,17 @@ class MCPAggregator(ContextDependent):
         Returns:
             Result from the operation or an error result
         """
+        print(f"🚀 DEBUG: MCPAggregator._execute_on_server() - STARTING {operation_type} '{operation_name}' on server '{server_name}' using method '{method_name}'")
 
         async def try_execute(client: ClientSession):
             try:
+                print(f"🔄 DEBUG: MCPAggregator._execute_on_server() - About to call {method_name} on client for server '{server_name}'")
                 method = getattr(client, method_name)
-                return await method(**method_args)
+                result = await method(**method_args)
+                print(f"✅ DEBUG: MCPAggregator._execute_on_server() - COMPLETED {method_name} successfully for server '{server_name}'")
+                return result
             except Exception as e:
+                print(f"❌ DEBUG: MCPAggregator._execute_on_server() - FAILED {method_name} for server '{server_name}': {str(e)}")
                 error_msg = (
                     f"Failed to {method_name} '{operation_name}' on server '{server_name}': {e}"
                 )
@@ -486,11 +491,13 @@ class MCPAggregator(ContextDependent):
                     raise e
 
         if self.connection_persistence:
+            print(f"🔗 DEBUG: MCPAggregator._execute_on_server() - Using persistent connection for server '{server_name}'")
             server_connection = await self._persistent_connection_manager.get_server(
                 server_name, client_session_factory=MCPAgentClientSession
             )
             return await try_execute(server_connection.session)
         else:
+            print(f"🔗 DEBUG: MCPAggregator._execute_on_server() - Creating temporary connection for server '{server_name}'")
             logger.debug(
                 f"Creating temporary connection to server: {server_name}",
                 data={
@@ -503,6 +510,7 @@ class MCPAggregator(ContextDependent):
                 server_name, server_registry=self.context.server_registry
             ) as client:
                 result = await try_execute(client)
+                print(f"🔗 DEBUG: MCPAggregator._execute_on_server() - Closing temporary connection for server '{server_name}'")
                 logger.debug(
                     f"Closing temporary connection to server: {server_name}",
                     data={
@@ -556,11 +564,13 @@ class MCPAggregator(ContextDependent):
         """
         Call a namespaced tool, e.g., 'server_name-tool_name'.
         """
+        print(f"🚀 DEBUG: MCPAggregator.call_tool() - STARTING tool call for '{name}' with args: {arguments}")
         if not self.initialized:
             await self.load_servers()
 
         # Use the common parser to get server and tool name
         server_name, local_tool_name = await self._parse_resource_name(name, "tool")
+        print(f"🔄 DEBUG: MCPAggregator.call_tool() - About to execute tool '{local_tool_name}' on server '{server_name}'")
 
         if server_name is None:
             logger.error(f"Error: Tool '{name}' not found")
@@ -569,6 +579,7 @@ class MCPAggregator(ContextDependent):
                 content=[TextContent(type="text", text=f"Tool '{name}' not found")],
             )
 
+        print(f"🔄 DEBUG: MCPAggregator.call_tool() - About to execute tool '{local_tool_name}' on server '{server_name}'")
         logger.info(
             "Requesting tool call",
             data={
@@ -583,7 +594,7 @@ class MCPAggregator(ContextDependent):
         with tracer.start_as_current_span(f"MCP Tool: {server_name}/{local_tool_name}"):
             trace.get_current_span().set_attribute("tool_name", local_tool_name)
             trace.get_current_span().set_attribute("server_name", server_name)
-            return await self._execute_on_server(
+            result = await self._execute_on_server(
                 server_name=server_name,
                 operation_type="tool",
                 operation_name=local_tool_name,
@@ -596,6 +607,8 @@ class MCPAggregator(ContextDependent):
                     isError=True, content=[TextContent(type="text", text=msg)]
                 ),
             )
+            print(f"✅ DEBUG: MCPAggregator.call_tool() - COMPLETED tool call for '{name}' successfully")
+            return result
 
     async def get_prompt(
         self,

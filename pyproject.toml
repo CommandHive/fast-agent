@@ -1,11 +1,11 @@
 [project]
-name = "fast-agent-mcp"
-version = "0.2.36"
-description = "Define, Prompt and Test MCP enabled Agents and Workflows"
+name = "bee-agent"
+version = "0.5.5"
+description = "QueenBee and WorkerBee for CommandHive.xyz"
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [
-    { name = "Shaun Smith", email = "fastagent@llmindset.co.uk"},
+    { name = "Vaibhav Maheshwari" , email = "vaibhav.dkm@gmail.com"}
 ]
 classifiers = [
     "Programming Language :: Python :: 3",

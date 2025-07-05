@@ -1,6 +1,6 @@
 import asyncio
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Dict, Optional, Type, TypeVar
+from typing import TYPE_CHECKING, Dict, Optional, Type, TypeVar, Union
 
 from mcp_agent.config import Settings
 from mcp_agent.context import Context, cleanup_context, initialize_context
@@ -40,7 +40,7 @@ class MCPApp:
     def __init__(
         self,
         name: str = "mcp_application",
-        settings: Optional[Settings] | str = None,
+        settings: Optional[Union[Settings, str, dict]] = None,
         human_input_callback: Optional[HumanInputCallback] = console_input_callback,
         signal_notification: Optional[SignalWaitCallback] = None,
         upstream_session: Optional["ServerSession"] = None,
@@ -49,8 +49,11 @@ class MCPApp:
         Initialize the application with a name and optional settings.
         Args:
             name: Name of the application
-            settings: Application configuration - If unspecified, the settings are loaded from mcp_agent.config.yaml.
-                If this is a string, it is treated as the path to the config file to load.
+            settings: Application configuration - Can be one of:
+                - None: Load from default config file
+                - str: Path to config file
+                - dict: JSON configuration dictionary
+                - Settings: Already initialized Settings object
             human_input_callback: Callback for handling human input
             signal_notification: Callback for getting notified on workflow signals/events.
             upstream_session: Optional upstream session if the MCPApp is running as a server to an MCP client.
@@ -119,7 +122,8 @@ class MCPApp:
         if self._initialized:
             return
 
-        self._context = await initialize_context(self._config_or_path, store_globally=True)
+        # Initialize the context with the provided config (which could be a dict/JSON)
+        self._context = await initialize_context(self._config_or_path)
 
         # Set the properties that were passed in the constructor
         self._context.human_input_handler = self._human_input_callback

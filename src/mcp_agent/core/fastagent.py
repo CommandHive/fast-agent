@@ -25,9 +25,7 @@ from mcp_agent.core.direct_decorators import (
 from mcp_agent.core.direct_decorators import (
     chain as chain_decorator,
 )
-from mcp_agent.core.direct_decorators import (
-    custom as custom_decorator,
-)
+
 from mcp_agent.core.direct_decorators import (
     evaluator_optimizer as evaluator_optimizer_decorator,
 )
@@ -80,6 +78,7 @@ class FastAgent:
         self,
         name: str,
         config_path: str | None = None,
+        json_config: dict | None = None,
         ignore_unknown_args: bool = False,
         parse_cli_args: bool = True,  # Add new parameter with default True
     ) -> None:
@@ -89,6 +88,7 @@ class FastAgent:
         Args:
             name: Name of the application
             config_path: Optional path to config file
+            json_config: Optional JSON configuration dictionary (alternative to config_path)
             ignore_unknown_args: Whether to ignore unknown command line arguments
                                  when parse_cli_args is True.
             parse_cli_args: If True, parse command line arguments using argparse.
@@ -96,6 +96,7 @@ class FastAgent:
                             (like FastAPI/Uvicorn) that handles its own arguments.
         """
         self.args = argparse.Namespace()  # Initialize args always
+        print("fastagent initial with version 0.3.0 with managed kafka support")
 
         # --- Wrap argument parsing logic ---
         if parse_cli_args:
@@ -175,16 +176,35 @@ class FastAgent:
 
         self.name = name
         self.config_path = config_path
+        self.json_config = json_config
 
         try:
             # Load configuration directly for this instance
             self._load_config()
-
-            # Create the app with our local settings
-            self.app = MCPApp(
-                name=name,
-                settings=config.Settings(**self.config) if hasattr(self, "config") else None,
-            )
+            
+            # Extract pubsub configuration for logging system
+            self.pubsub_enabled = False
+            self.pubsub_config = None
+            
+            if hasattr(self, "json_config") and self.json_config is not None:
+                # Check for pubsub configuration in JSON config
+                self.pubsub_enabled = self.json_config.get("pubsub_enabled", False)
+                self.pubsub_config = self.json_config.get("pubsub_config", None)
+                
+                # We'll configure logging later during agent initialization
+                # when we have a running event loop
+                
+                # Pass the original JSON config to MCPApp to avoid duplicate conversion
+                self.app = MCPApp(
+                    name=name,
+                    settings=self.json_config,
+                )
+            else:
+                # Create the app with our local settings
+                self.app = MCPApp(
+                    name=name,
+                    settings=config.Settings(**self.config) if hasattr(self, "config") else None,
+                )
 
         except yaml.parser.ParserError as e:
             handle_error(
@@ -193,12 +213,27 @@ class FastAgent:
                 "There was an error parsing the config or secrets YAML configuration file.",
             )
             raise SystemExit(1)
+        except ValueError as e:
+            # Could be JSON or YAML validation error
+            handle_error(
+                e,
+                "Configuration Error",
+                "There was an error with the configuration data. Please check the format and schema.",
+            )
+            raise SystemExit(1)
+        except Exception as e:
+            handle_error(
+                e,
+                "Configuration Error",
+                "An unexpected error occurred while loading the configuration.",
+            )
+            raise SystemExit(1)
 
         # Dictionary to store agent configurations from decorators
         self.agents: Dict[str, Dict[str, Any]] = {}
 
     def _load_config(self) -> None:
-        """Load configuration from YAML file including secrets using get_settings
+        """Load configuration from YAML file or JSON dictionary using get_settings
         but without relying on the global cache."""
 
         # Import but make a local copy to avoid affecting the global state
@@ -209,8 +244,16 @@ class FastAgent:
         _settings = None
 
         try:
-            # Use get_settings to load config - this handles all paths and secrets merging
-            settings = get_settings(self.config_path)
+            # Check if json_config is provided, prioritize it over config_path
+            if hasattr(self, 'json_config') and self.json_config is not None:
+                # Use the provided JSON configuration directly
+                settings = get_settings(json_config=self.json_config)
+                logger.debug("Loading configuration from provided JSON dictionary")
+            else:
+                # Use get_settings to load config from file - this handles all paths and secrets merging
+                settings = get_settings(self.config_path)
+                config_source = "default config" if self.config_path is None else f"file path: {self.config_path}"
+                logger.debug(f"Loading configuration from {config_source}")
 
             # Convert to dict for backward compatibility
             self.config = settings.model_dump() if settings else {}
@@ -225,7 +268,6 @@ class FastAgent:
 
     # Decorator methods with type-safe implementations
     agent = agent_decorator
-    custom = custom_decorator
     orchestrator = orchestrator_decorator
     router = router_decorator
     chain = chain_decorator
@@ -240,6 +282,17 @@ class FastAgent:
         """
         active_agents: Dict[str, Agent] = {}
         had_error = False
+        
+        # Configure the logging system with Redis PubSub if enabled
+        if hasattr(self, "pubsub_enabled") and self.pubsub_enabled and hasattr(self, "pubsub_config"):
+            from mcp_agent.logging.logger import LoggingConfig
+            
+            # Now we have a running event loop, configure logging
+            await LoggingConfig.configure(
+                pubsub_enabled=self.pubsub_enabled,
+                pubsub_config=self.pubsub_config
+            )
+            
         await self.app.initialize()
 
         # Handle quiet mode and CLI model override safely

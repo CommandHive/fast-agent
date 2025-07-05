@@ -63,29 +63,56 @@ class ServerRegistry:
         init_hooks (Dict[str, InitHookCallable]): Registered initialization hooks.
     """
 
-    def __init__(self, config: Settings | None = None, config_path: str | None = None) -> None:
+    def __init__(
+        self, 
+        config: Settings | None = None, 
+        config_path: str | None = None,
+        json_config: dict | None = None
+    ) -> None:
         """
-        Initialize the ServerRegistry with a configuration file.
+        Initialize the ServerRegistry with a configuration.
 
         Args:
             config (Settings): The Settings object containing the server configurations.
             config_path (str): Path to the YAML configuration file.
+            json_config (dict): JSON configuration dictionary for MCP servers.
         """
-        if config is None:
-            self.registry = self.load_registry_from_file(config_path)
-        elif (
-            config.mcp is not None
-            and hasattr(config.mcp, "servers")
-            and config.mcp.servers is not None
-        ):
-            # Ensure config.mcp exists, has a 'servers' attribute, and it's not None
-            self.registry = config.mcp.servers
+        if json_config is not None:
+            # Create MCP server settings from JSON directly
+            self.registry = self._create_registry_from_json(json_config)
         else:
-            # Default to an empty dictionary if config.mcp is None or has no 'servers'
-            self.registry = {}
-
+            self.registry = (
+                self.load_registry_from_file(config_path) if config is None else config.mcp.servers
+            )
+        
         self.init_hooks: Dict[str, InitHookCallable] = {}
         self.connection_manager = MCPConnectionManager(self)
+
+    def _create_registry_from_json(self, json_config: dict) -> Dict[str, MCPServerSettings]:
+        """
+        Create server registry from JSON configuration dictionary.
+
+        Args:
+            json_config (dict): JSON configuration dictionary for MCP servers.
+                Expected format: {"server_name": {server_config}, ...}
+
+        Returns:
+            Dict[str, MCPServerSettings]: A dictionary of server configurations.
+        """
+        server_registry: Dict[str, MCPServerSettings] = {}
+        
+        for server_name, server_config in json_config.items():
+            if not isinstance(server_config, dict):
+                logger.warning(f"Invalid server configuration for {server_name}: {server_config}")
+                continue
+                
+            try:
+                # Create server settings from config
+                server_registry[server_name] = MCPServerSettings(**server_config)
+            except Exception as e:
+                logger.warning(f"Error creating server settings for {server_name}: {e}")
+                
+        return server_registry
 
     def load_registry_from_file(
         self, config_path: str | None = None
@@ -99,17 +126,8 @@ class ServerRegistry:
         Raises:
             ValueError: If the configuration is invalid.
         """
-        servers = {}
 
-        settings = get_settings(config_path)
-
-        if (
-            settings.mcp is not None
-            and hasattr(settings.mcp, "servers")
-            and settings.mcp.servers is not None
-        ):
-            return settings.mcp.servers
-
+        servers = get_settings(config_path).mcp.servers or {}
         return servers
 
     @asynccontextmanager
@@ -185,14 +203,11 @@ class ServerRegistry:
             if not config.url:
                 raise ValueError(f"URL is required for SSE transport: {server_name}")
 
-            # Apply HuggingFace authentication if appropriate
-            headers = add_hf_auth_header(config.url, config.headers)
-
             # Use sse_client to get the read and write streams
             async with _add_none_to_context(
                 sse_client(
                     config.url,
-                    headers,
+                    config.headers,
                     sse_read_timeout=config.read_transport_sse_timeout_seconds,
                 )
             ) as (read_stream, write_stream, _):
@@ -210,8 +225,9 @@ class ServerRegistry:
                         logger.debug(f"{server_name}: Closed session to server")
         elif config.transport == "http":
             if not config.url:
-                raise ValueError(f"URL is required for HTTP transport: {server_name}")
+                raise ValueError(f"URL is required for SSE transport: {server_name}")
 
+            
             # Apply HuggingFace authentication if appropriate
             headers = add_hf_auth_header(config.url, config.headers)
 
@@ -231,10 +247,12 @@ class ServerRegistry:
                     try:
                         yield session
                     finally:
+                        print(f"🔗 DEBUG: ServerRegistry.start_server() - Closing session for server '{server_name}'")
                         logger.debug(f"{server_name}: Closed session to server")
 
         # Unsupported transport
         else:
+            print(f"❌ DEBUG: ServerRegistry.start_server() - UNSUPPORTED transport '{config.transport}' for server '{server_name}'")
             raise ValueError(f"Unsupported transport: {config.transport}")
 
     @asynccontextmanager
@@ -271,6 +289,7 @@ class ServerRegistry:
             raise ValueError(f"Server '{server_name}' not found in registry.")
 
         config = self.registry[server_name]
+        print(f"Config: {config}, server_name: {server_name}")
 
         async with self.start_server(
             server_name, client_session_factory=client_session_factory

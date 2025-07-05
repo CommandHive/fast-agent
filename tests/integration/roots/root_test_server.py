@@ -4,7 +4,6 @@ from mcp.server.fastmcp import Context, FastMCP
 
 if TYPE_CHECKING:
     from mcp.types import ListRootsResult
-
 mcp = FastMCP("MCP Root Tester", log_level="DEBUG")
 
 

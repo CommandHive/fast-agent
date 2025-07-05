@@ -6,12 +6,10 @@ from typing import Dict, List, Optional, Union
 
 from deprecated import deprecated
 from mcp.types import PromptMessage
-from rich import print as rich_print
 
 from mcp_agent.agents.agent import Agent
 from mcp_agent.core.interactive_prompt import InteractivePrompt
 from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
-from mcp_agent.progress_display import progress_display
 
 
 class AgentApp:
@@ -71,7 +69,7 @@ class AgentApp:
         if message:
             return await self._agent(agent_name).send(message)
 
-        return await self.interactive(agent_name=agent_name, default_prompt=default_prompt)
+        return await self.interactive(agent=agent_name, default_prompt=default_prompt)
 
     async def send(
         self,
@@ -98,10 +96,6 @@ class AgentApp:
             if agent_name not in self._agents:
                 raise ValueError(f"Agent '{agent_name}' not found")
             return self._agents[agent_name]
-
-        for agent in self._agents.values():
-            if agent.config.default:
-                return agent
 
         return next(iter(self._agents.values()))
 
@@ -135,12 +129,6 @@ class AgentApp:
         Returns:
             Dictionary mapping server names to lists of available prompts
         """
-        if not agent_name:
-            results = {}
-            for agent in self._agents.values():
-                curr_prompts = await agent.list_prompts(server_name=server_name)
-                results.update(curr_prompts)
-            return results
         return await self._agent(agent_name).list_prompts(server_name=server_name)
 
     async def get_prompt(
@@ -232,9 +220,9 @@ class AgentApp:
         """
         Deprecated - use interactive() instead.
         """
-        return await self.interactive(agent_name=agent_name, default_prompt=default_prompt)
+        return await self.interactive(agent=agent_name, default_prompt=default_prompt)
 
-    async def interactive(self, agent_name: str | None = None, default_prompt: str = "") -> str:
+    async def interactive(self, agent: str | None = None, default_prompt: str = "") -> str:
         """
         Interactive prompt for sending messages with advanced features.
 
@@ -247,21 +235,14 @@ class AgentApp:
         """
 
         # Get the default agent name if none specified
-        if agent_name:
+        if agent:
             # Validate that this agent exists
-            if agent_name not in self._agents:
-                raise ValueError(f"Agent '{agent_name}' not found")
-            target_name = agent_name
+            if agent not in self._agents:
+                raise ValueError(f"Agent '{agent}' not found")
+            target_name = agent
         else:
-            target_name = None
-            for agent in self._agents.values():
-                if agent.config.default:
-                    target_name = agent.config.name
-                    break
-
-            if not target_name:
-                # Use the first agent's name as default
-                target_name = next(iter(self._agents.keys()))
+            # Use the first agent's name as default
+            target_name = next(iter(self._agents.keys()))
 
         # Don't delegate to the agent's own prompt method - use our implementation
         # The agent's prompt method doesn't fully support switching between agents
@@ -274,51 +255,14 @@ class AgentApp:
 
         # Define the wrapper for send function
         async def send_wrapper(message, agent_name):
-            result = await self.send(message, agent_name)
-            
-            # Show usage info after each turn if progress display is enabled
-            self._show_turn_usage(agent_name)
-            
-            return result
+            return await self.send(message, agent_name)
 
         # Start the prompt loop with the agent name (not the agent object)
         return await prompt.prompt_loop(
             send_func=send_wrapper,
             default_agent=target_name,  # Pass the agent name, not the agent object
             available_agents=list(self._agents.keys()),
-            prompt_provider=self,  # Pass self as the prompt provider
+            apply_prompt_func=self.apply_prompt,
+            list_prompts_func=self.list_prompts,
             default=default_prompt,
         )
-
-    def _show_turn_usage(self, agent_name: str) -> None:
-        """Show subtle usage information after each turn."""
-        agent = self._agents.get(agent_name)
-        if not agent or not agent.usage_accumulator:
-            return
-            
-        # Get the last turn's usage (if any)
-        turns = agent.usage_accumulator.turns
-        if not turns:
-            return
-            
-        last_turn = turns[-1]
-        input_tokens = last_turn.display_input_tokens
-        output_tokens = last_turn.output_tokens
-        
-        # Build cache indicators with bright colors
-        cache_indicators = ""
-        if last_turn.cache_usage.cache_write_tokens > 0:
-            cache_indicators += "[bright_yellow]^[/bright_yellow]"
-        if last_turn.cache_usage.cache_read_tokens > 0 or last_turn.cache_usage.cache_hit_tokens > 0:
-            cache_indicators += "[bright_green]*[/bright_green]"
-            
-        # Build context percentage - get from accumulator, not individual turn
-        context_info = ""
-        context_percentage = agent.usage_accumulator.context_usage_percentage
-        if context_percentage is not None:
-            context_info = f" ({context_percentage:.1f}%)"
-            
-        # Show subtle usage line - pause progress display to ensure visibility
-        with progress_display.paused():
-            cache_suffix = f" {cache_indicators}" if cache_indicators else ""
-            rich_print(f"[dim]Last turn: {input_tokens:,} Input, {output_tokens:,} Output{context_info}[/dim]{cache_suffix}")

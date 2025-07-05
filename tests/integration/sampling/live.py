@@ -17,6 +17,5 @@ async def main():
         result = await agent.send('***CALL_TOOL slow_sampling-sample_parallel')
         print(f"RESULT: {result}")
 
-
 if __name__ == "__main__":
     asyncio.run(main())
