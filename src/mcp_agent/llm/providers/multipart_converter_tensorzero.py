@@ -88,21 +88,12 @@ class TensorZeroConverter:
 
             if tool_use_id and tool_name:
                 result_content_str = TensorZeroConverter._get_text_from_call_tool_result(result)
-                try:
-                    # Attempt to treat result as JSON if possible, else use raw string
-                    try:
-                        json_result = json.loads(result_content_str)
-                    except json.JSONDecodeError:
-                        json_result = result_content_str  # Fallback to string if not valid JSON
-                except Exception as e:
-                    _logger.error(f"Unexpected error processing tool result content: {e}")
-                    json_result = str(result_content_str)  # Safest fallback
-
+                # TensorZero expects result field to always be a string, not a parsed object
                 t0_block = {
                     "type": "tool_result",
                     "id": tool_use_id,
                     "name": tool_name,
-                    "result": json_result,  # T0 expects the result directly
+                    "result": result_content_str,  # Always keep as string for TensorZero
                 }
                 t0_tool_result_blocks.append(t0_block)
 
@@ -149,21 +140,13 @@ class TensorZeroConverter:
                 tool_name = getattr(part, "_t0_tool_name_temp", None)
                 if tool_use_id and tool_name:
                     result_content_str = TensorZeroConverter._get_text_from_call_tool_result(part)
-                    # Try to format result as JSON object/string
-                    try:
-                        json_result = json.loads(result_content_str)
-                    except json.JSONDecodeError:
-                        json_result = result_content_str  # Fallback
-                    except Exception as e:
-                        _logger.error(f"Error processing embedded tool result: {e}")
-                        json_result = str(result_content_str)
-
+                    # TensorZero expects result field to always be a string, not a parsed object
                     t0_content_blocks.append(
                         {
                             "type": "tool_result",
                             "id": tool_use_id,
                             "name": tool_name,
-                            "result": json_result,
+                            "result": result_content_str,  # Always keep as string for TensorZero
                         }
                     )
                     # Clean up temp attributes

@@ -5,6 +5,7 @@ import os
 import ssl
 import logging
 from mcp_agent.core.fastagent import FastAgent
+from mcp_agent.content_filter import StudentContentFilter, FilterResult
 from dotenv import load_dotenv
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 from aiokafka.abc import AbstractTokenProvider
@@ -88,14 +89,14 @@ simple_config = {
                 "name": "fetch",
                 "description": "A server for fetching web content",
                 "transport": "stdio",
-                "command": "uvx",
+                "command": "/Users/vaibhavgeek/.local/bin/uvx",
                 "args": ["mcp-server-fetch"]
             }
         }
     },
-    "default_model": "claude-3-7-sonnet-latest",   
+    "default_model": "tensorzero.my_function_name",   
     "logger": {
-        "level": "info",
+        "level": "debug",
         "type": "console"
     },
     "pubsub_enabled": True,
@@ -127,8 +128,8 @@ simple_config = {
             }
         },
     },
-    "anthropic": {
-        "api_key": os.environ.get("CLAUDE_API_KEY", "") 
+    "tensorzero": {
+        "base_url": "http://localhost:3000"
     }
 }
 
@@ -139,17 +140,16 @@ fast = FastAgent(
     parse_cli_args=True  # Enable CLI argument parsing for model selection
 )
 
+# Initialize content filter (will be updated with agent instance later)
+content_filter = None
+
 @fast.agent(
     name="assistant",
     instruction="""You are a helpful AI assistant. You can:
-    - Answer questions on any topic
-    - Help with problem-solving
-    - Fetch web content when needed using the fetch server
-    - Have natural conversations
-    
+    fetch things - fetch this https://github.com/modelcontextprotocol/servers/tree/main/src/fetch
     Be friendly, helpful, and engaging in your responses.""",
-    servers=["fetch"],  # Give access to web fetching capability
-    model="claude-3-7-sonnet-latest"  # Default model, can be overridden with --model flag
+    servers=["fetch", "notion"],  # Give access to web fetching capability
+    model="tensorzero.my_function_name"  # Default model, can be overridden with --model flag
 )
 async def main():
     """MCP Agent that listens to MSK pub/sub messages"""
@@ -159,6 +159,9 @@ async def main():
     producer = await create_producer()
     
     async with fast.run() as agent:
+        # Initialize content filter with agent instance
+        global content_filter
+        content_filter = StudentContentFilter(agent_instance=agent)
         logger.info("🤖 MCP Agent is ready and listening for messages!")
         logger.info("Listening on MSK topic: %s", TOPIC_NAME)
         logger.info("Send messages using the producer script to interact with the agent")
@@ -175,16 +178,34 @@ async def main():
                     
                     # Extract user content from message
                     user_content = None
+                    message_type = None
                     if isinstance(message.value, dict):
-                        if message.value.get('type') == 'user_message' and 'content' in message.value:
+                        message_type = message.value.get('type')
+                        
+                        # Skip assistant messages
+                        if message_type == 'assistant_message':
+                            logger.debug("Skipping assistant message")
+                            continue
+                            
+                        if message_type == 'user_message' and 'content' in message.value:
                             user_content = message.value['content']
-                        elif message.value.get('type') == 'user' and 'content' in message.value:
+                            print(user_content)
+                        elif message_type == 'student_message' and 'content' in message.value:
+                            user_content = message.value['content']
+                        elif message_type == 'user' and 'content' in message.value:
                             user_content = message.value['content']
                     elif isinstance(message.value, str):
                         # Try to parse as JSON first
                         try:
                             data_obj = json.loads(message.value)
-                            if data_obj.get('type') in ['user_message', 'user'] and 'content' in data_obj:
+                            message_type = data_obj.get('type')
+                            
+                            # Skip assistant messages
+                            if message_type == 'assistant_message':
+                                logger.debug("Skipping assistant message")
+                                continue
+                                
+                            if message_type in ['user_message', 'user', 'student_message'] and 'content' in data_obj:
                                 user_content = data_obj['content']
                             else:
                                 user_content = message.value
@@ -194,10 +215,71 @@ async def main():
                     if user_content:
                         logger.info("👤 User: %s", user_content)
                         
+                        # Check for blocked content in student messages
+                        if message_type == 'student_message':
+                            logger.info("📚 Student message detected - checking content filter")
+                            
+                            # Check if the request itself contains blocked content using comprehensive filtering
+                            filter_result = await content_filter.check_blocked_content_comprehensive(user_content)
+                            if not filter_result.is_allowed:
+                                logger.warning("🚫 Blocked student request: %s", filter_result.reason)
+                                response = content_filter.get_safe_response(filter_result.category)
+                                
+                                # Send filtered response back
+                                response_data = {
+                                    'type': 'assistant_message',
+                                    'content': response,
+                                    'filtered': True,
+                                    'filter_reason': filter_result.reason,
+                                    'timestamp': asyncio.get_event_loop().time() * 1000,
+                                    'messageId': f"filtered_{int(asyncio.get_event_loop().time() * 1000)}_{hash(response) % 10000}"
+                                }
+                                await producer.send(TOPIC_NAME, value=response_data)
+                                logger.info("🛡️ Sent filtered response: %s", response)
+                                continue
+                        
                         # Send to agent and get response
                         response = await agent.assistant(user_content)
                         logger.info("🤖 Assistant: %s", response)
                         
+                        # For student messages, also check the agent's response
+                        if message_type == 'student_message':
+                            response_filter_result = await content_filter.check_blocked_content_comprehensive(response)
+                            if not response_filter_result.is_allowed:
+                                logger.warning("🚫 Blocked assistant response for student: %s", response_filter_result.reason)
+                                response = content_filter.get_safe_response(response_filter_result.category)
+                                
+                                # Create filtered response data
+                                response_data = {
+                                    'type': 'assistant_message',
+                                    'content': response,
+                                    'filtered': True,
+                                    'filter_reason': f"Response filtered: {response_filter_result.reason}",
+                                    'timestamp': asyncio.get_event_loop().time() * 1000,
+                                    'messageId': f"filtered_response_{int(asyncio.get_event_loop().time() * 1000)}_{hash(response) % 10000}"
+                                }
+                            else:
+                                # Create normal response data
+                                response_data = {
+                                    'type': 'assistant_message',
+                                    'content': response,
+                                    'filtered': False,
+                                    'timestamp': asyncio.get_event_loop().time() * 1000,
+                                    'messageId': f"assistant_{int(asyncio.get_event_loop().time() * 1000)}_{hash(response) % 10000}"
+                                }
+                        else:
+                            # Create response data for non-student messages
+                            response_data = {
+                                'type': 'assistant_message',
+                                'content': response,
+                                'filtered': False,
+                                'timestamp': asyncio.get_event_loop().time() * 1000,
+                                'messageId': f"assistant_{int(asyncio.get_event_loop().time() * 1000)}_{hash(response) % 10000}"
+                            }
+                        
+                        # Send response to Kafka
+                        await producer.send(TOPIC_NAME, value=response_data)
+                        logger.info("✅ Sent response to Kafka topic:", TOPIC_NAME)
                         
                     
                 except Exception as e:

@@ -66,8 +66,11 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         # Extract server_name if provided in kwargs
         from importlib.metadata import version
 
-        version = version("fast-agent-mcp") or "dev"
-        fast_agent: Implementation = Implementation(name="fast-agent-mcp", version=version)
+        try:
+            app_version = version("fast-agent-mcp") or "dev"
+        except Exception:
+            app_version = "dev"
+        fast_agent: Implementation = Implementation(name="fast-agent-mcp", version=app_version)
 
         self.session_server_name = kwargs.pop("server_name", None)
         # Extract the notification callbacks if provided
@@ -161,8 +164,10 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         metadata: MessageMetadata | None = None,
         progress_callback: ProgressFnT | None = None,
     ) -> ReceiveResultT:
+        print(f"🚀 DEBUG: MCPAgentClientSession.send_request() - STARTING request to server '{self.session_server_name}' with request type: {type(request).__name__}")
         logger.debug("send_request: request=", data=request.model_dump())
         try:
+            print(f"🔄 DEBUG: MCPAgentClientSession.send_request() - About to call super().send_request() for server '{self.session_server_name}'")
             result = await super().send_request(
                 request=request,
                 result_type=result_type,
@@ -170,12 +175,14 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
                 metadata=metadata,
                 progress_callback=progress_callback,
             )
+            print(f"✅ DEBUG: MCPAgentClientSession.send_request() - COMPLETED successfully for server '{self.session_server_name}', result type: {type(result).__name__}")
             logger.debug(
                 "send_request: response=",
                 data=result.model_dump() if result is not None else "no response returned",
             )
             return result
         except Exception as e:
+            print(f"❌ DEBUG: MCPAgentClientSession.send_request() - FAILED for server '{self.session_server_name}': {str(e)}")
             logger.error(f"send_request failed: {str(e)}")
             raise
 

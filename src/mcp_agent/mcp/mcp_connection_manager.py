@@ -183,14 +183,21 @@ async def _server_lifecycle_task(server_conn: ServerConnection) -> None:
     Runs inside the MCPConnectionManager's shared TaskGroup.
     """
     server_name = server_conn.server_name
+    logger.debug(f"{server_name}: Starting server lifecycle task")
     try:
+        logger.debug(f"{server_name}: Creating transport context")
         transport_context = server_conn._transport_context_factory()
 
+        logger.debug(f"{server_name}: Entering transport context")
         async with transport_context as (read_stream, write_stream, _):
+            logger.debug(f"{server_name}: Transport context established, creating session")
             server_conn.create_session(read_stream, write_stream)
 
+            logger.debug(f"{server_name}: Entering session context")
             async with server_conn.session:
+                logger.debug(f"{server_name}: Session established, initializing server")
                 await server_conn.initialize_session()
+                logger.debug(f"{server_name}: Server initialized, waiting for shutdown request")
                 await server_conn.wait_for_shutdown_request()
 
     except HTTPStatusError as http_exc:
@@ -208,6 +215,11 @@ async def _server_lifecycle_task(server_conn: ServerConnection) -> None:
         # No raise - let get_server handle it with a friendly message
 
     except Exception as exc:
+        # Debug: Log more details about the error before processing
+        logger.debug(f"{server_name}: Raw exception type: {type(exc).__name__}")
+        logger.debug(f"{server_name}: Raw exception message: {exc}")
+        logger.debug(f"{server_name}: Exception args: {exc.args if hasattr(exc, 'args') else 'no args'}")
+        
         logger.error(
             f"{server_name}: Lifecycle task encountered an error: {exc}",
             exc_info=True,
@@ -222,6 +234,7 @@ async def _server_lifecycle_task(server_conn: ServerConnection) -> None:
             # Handle ExceptionGroup better by extracting the actual errors
             error_messages = []
             for subexc in exc.exceptions:
+                logger.debug(f"{server_name}: Processing subexception: {type(subexc).__name__}: {subexc}")
                 if isinstance(subexc, HTTPStatusError):
                     # Special handling for HTTP errors to make them more user-friendly
                     error_messages.append(
@@ -323,6 +336,11 @@ class MCPConnectionManager(ContextDependent):
                     env={**get_default_environment(), **(config.env or {})},
                     cwd=config.cwd,
                 )
+                # Debug: Log the exact command being executed
+                logger.debug(f"{server_name}: Executing command: {config.command} with args: {config.args}")
+                logger.debug(f"{server_name}: Environment: {config.env or 'default'}")
+                logger.debug(f"{server_name}: Working directory: {config.cwd or 'default'}")
+                
                 # Create custom error handler to ensure all output is captured
                 error_handler = get_stderr_handler(server_name)
                 # Explicitly ensure we're using our custom logger for stderr
@@ -348,7 +366,7 @@ class MCPConnectionManager(ContextDependent):
             client_session_factory=client_session_factory,
             init_hook=init_hook or self.server_registry.init_hooks.get(server_name),
         )
-
+        print(f" What does server connection look like? {server_conn}")
         async with self._lock:
             # Check if already running
             if server_name in self.running_servers:

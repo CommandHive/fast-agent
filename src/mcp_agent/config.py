@@ -146,6 +146,8 @@ class AnthropicSettings(BaseModel):
 
     base_url: str | None = None
 
+    cache_mode: Literal["off", "prompt", "auto"] = "auto"
+
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
